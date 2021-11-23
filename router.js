@@ -10,13 +10,13 @@ router.post("/csv", (req, res) => {
   if (csvData)
     fs.writeFile('./input.csv', csvData, 'utf8', function (err) {
       if (err) {
-        res.status(500).send({ result: "something went wrong! Please try again" });
+        res.status(500).send({ error: "something went wrong! Please try again" });
       } else {
         calculateTime(req, res);
       }
     });
   else
-    res.status(500).send({ result: "You did not insert timesheet data" });
+    res.status(500).send({ error: "You did not insert timesheet data" });
 })
 
 function timestrToSec(timestr) {
@@ -91,6 +91,8 @@ const calculateTime = (req, res) => {
 
     setTimeout(() => {
       let totaltime = '00:00:00';
+      let defaultTotalBreakTime = '01:00:00';
+      let totalBreaktime = '00:00:00';
       let notPrintedTime = '00:00:00';
       let workingHour = "08:30:00";
       let officeHour = "09:30:00";
@@ -101,36 +103,74 @@ const calculateTime = (req, res) => {
       let isWorkingTimeCompleted = false;
       let lastOutTime;
 
+      // console.log(arr, "array...")
       let currentTime = moment(new Date()).format("DD/MM/YYYY HH:mm:ss");
-      // var currentTime = "22/11/2021 19:00:00";
+      // var currentTime = "23/11/2021 14:00:00";
       let lastIndex = arr.length - 1;
-      console.log(arr.length, "last index")
       if (!arr.length > 0) {
         res.status(500).send({ error: "Input is not valid! Please try again" });
         return;
       }
+      try {
+        let myArrDiff = []
+        let isError = false;
+        arr.map((item, index) => {
+          if (!item?.InTime) {
+            isError = true;
+          }
+          else {
+            if (index == 0 && item?.OutTime)
+              myArrDiff[0] = ({ OutTime: item.OutTime })
+            else {
+              if (item?.InTime)
+                myArrDiff[index - 1] = myArrDiff?.[index - 1] ? { ...myArrDiff[index - 1], InTime: item.InTime } : { InTime: item.InTime }
+              if (item?.OutTime)
+                myArrDiff[index] = myArrDiff?.[index] ? { ...myArrDiff[index], OutTime: item.OutTime } : { OutTime: item.OutTime };
+            }
+            if (index == 0)
+              initialInTime = moment(item.InTime).format("DD/MM/YYYY HH:mm:ss");
+            if (index == lastIndex && item?.OutTime)
+              lastOutTime = moment(item.OutTime).format("DD/MM/YYYY HH:mm:ss");
+            if (item?.WorkingHours)
+              totaltime = formatTime(timestrToSec(totaltime) + timestrToSec(item.WorkingHours));
+            else {
+              if (item?.InTime) {
+                let then = moment(item.InTime).format("DD/MM/YYYY HH:mm:ss");
+                notPrintedTime = timeDiff(currentTime, then);
+              }
+              if (item?.OutTime) {
+                let last = moment(item.InTime).format("DD/MM/YYYY HH:mm:ss");
+                let then = moment(item.OutTime).format("DD/MM/YYYY HH:mm:ss");
+                let lastOutTime = timeDiff(then, last);
+                totaltime = formatTime(timestrToSec(totaltime) + timestrToSec(lastOutTime));
+                notPrintedTime = "00:00:00";
+              }
+            }
+          }
+        })
 
-      arr.map((item, index) => {
-        if (!item?.InTime) {
+        try {
+          myArrDiff.map(item => {
+            if (item?.OutTime && item?.InTime) {
+              let _outTime = moment(item.OutTime).format("DD/MM/YYYY HH:mm:ss"),
+                _inTime = moment(item.InTime).format("DD/MM/YYYY HH:mm:ss");
+              let diff = timeDiff(_inTime, _outTime);
+              totalBreaktime = formatTime(timestrToSec(totalBreaktime) + timestrToSec(diff));
+            }
+          })
+        } catch (error) {
+
+        }
+        console.log(myArrDiff, "sjsjsjsjaarrrr")
+        if (isError) {
           res.status(500).send({ error: "Input is not valid! Please try again" });
           return;
         }
+      } catch (error) {
+        // res.status(500).send({ error: "Input is not valid! Please try again" });
+      }
 
-        if (index == 0)
-          initialInTime = moment(item.InTime).format("DD/MM/YYYY HH:mm:ss");
-        if (index == lastIndex && item?.OutTime)
-          lastOutTime = moment(item.OutTime).format("DD/MM/YYYY HH:mm:ss");
-        if (item?.WorkingHours)
-          totaltime = formatTime(timestrToSec(totaltime) + timestrToSec(item.WorkingHours));
-        else {
-          if (item?.InTime) {
-            let then = moment(item.InTime).format("DD/MM/YYYY HH:mm:ss");
-            notPrintedTime = timeDiff(currentTime, then);
-          }
-        }
-      })
 
-      // console.log(arr, "jsjsjsj")
       let completedWorkingTime = formatTime(timestrToSec(totaltime) + timestrToSec(notPrintedTime));
       let comletedOfficeTime = moment(timeDiff(lastOutTime ? lastOutTime : currentTime, initialInTime), "HHmmss").format("HH:mm:ss");
       if (comletedOfficeTime > officeHour)
@@ -148,7 +188,14 @@ const calculateTime = (req, res) => {
         var result = minsToStr(strToMins(workingHour) - strToMins(completedWorkingTime));
         remainingWorkingTime = result;
       }
+      let yourTimeWillbeCompleted = null;
+      if (notPrintedTime != '00:00:00' && !isWorkingTimeCompleted) {
+        let current_time = moment().format("HH:mm:ss")
+        yourTimeWillbeCompleted = formatTime(timestrToSec(current_time) + timestrToSec(remainingWorkingTime + ":00"));
+      }
+      else { yourTimeWillbeCompleted = null }
 
+      console.log(totalBreaktime, "total break time...")
       let resultObj = {
         comletedOfficeTime,
         completedWorkingTime,
@@ -157,11 +204,36 @@ const calculateTime = (req, res) => {
         isOfficeTimeCompleted,
         isWorkingTimeCompleted
       }
+      if (yourTimeWillbeCompleted) {
+        var timeString = yourTimeWillbeCompleted;
+        var H = +timeString.substr(0, 2);
+        var h = H % 12 || 12;
+        var ampm = (H < 12 || H === 24) ? " AM" : " PM";
+        timeString = h + timeString.substr(2, 3) + ampm;
+        resultObj.yourTimeWillbeCompleted = timeString;
+      }
+      if (totalBreaktime != '00:00:00') {
+        resultObj.totalBreaktime = totalBreaktime;
+      }
+      if (totalBreaktime >= defaultTotalBreakTime)
+        resultObj.remainingBreakTime = "00:00";
+      else {
+        var result = minsToStr(strToMins(defaultTotalBreakTime) - strToMins(totalBreaktime));
+        resultObj.remainingBreakTime = result;
 
+        if (notPrintedTime != '00:00:00' && !isWorkingTimeCompleted) {
+          let completionTimeIfTakeBreak = formatTime(timestrToSec(yourTimeWillbeCompleted) + timestrToSec(result + ":00"));
+          var timeString = completionTimeIfTakeBreak;
+          var H = +timeString.substr(0, 2);
+          var h = H % 12 || 12;
+          var ampm = (H < 12 || H === 24) ? " AM" : " PM";
+          timeString = h + timeString.substr(2, 3) + ampm;
+          resultObj.completionTimeIfTakeBreak = timeString;
+        }
+      }
       res.status(200).send({ result: resultObj });
     }, 1000);
   } catch (error) {
-    console.log(error)
     res.status(500).send({ error: "Input is not valid! Please try again" });
   }
 }
