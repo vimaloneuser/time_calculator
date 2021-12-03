@@ -2,7 +2,7 @@ require("dotenv").config();
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
-let count = 1;
+let count = 0;
 
 const router = require('./router');
 
