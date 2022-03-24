@@ -3,11 +3,22 @@ const router = express.Router();
 const fs = require('fs');
 const csv = require('@fast-csv/parse');
 const moment = require('moment');
+const path = require('path');
 
+router.get("/csv", (req, res) => {
+
+  let options = {
+    root: path.join(__dirname)
+  }
+
+  res.sendFile("logs.csv", options, () => {
+
+  })
+})
 
 router.post("/csv", (req, res) => {
   let { csvData } = req.body;
-  if (csvData)
+  if (csvData) {
     fs.writeFile('./input.csv', csvData, 'utf8', function (err) {
       if (err) {
         res.status(500).send({ error: "something went wrong! Please try again" });
@@ -15,6 +26,11 @@ router.post("/csv", (req, res) => {
         calculateTime(req, res);
       }
     });
+
+    let data = `\n reuest came from IP : ${req.ip} date: ${new Date()}`
+    fs.appendFile('./logs.csv', data, 'utf8', function (err) {
+    });
+  }
   else
     res.status(500).send({ error: "You did not insert timesheet data" });
 })
